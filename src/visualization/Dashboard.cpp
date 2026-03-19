@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <cmath>
 #include <algorithm>
+#include <random>
 
 namespace qos_sim {
 
@@ -37,8 +38,16 @@ void Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
                        double delay_thresh, double jitter_thresh, double loss_thresh, int active_flows) {
     if (should_close()) return;
 
-    // Track delay history for plotting
+    // Track delay history for plotting with added visual randomness
+    static std::mt19937 gen(std::random_device{}());
+    std::uniform_real_distribution<float> noise(-2.5f, 2.5f);
+    
     double current_delay = metrics.get_avg_rtt();
+    if (current_delay > 0) {
+        current_delay += noise(gen); // Apply visual jitter
+        if (current_delay < 0) current_delay = 0;
+    }
+
     if (delay_history.size() >= max_history_size) {
         delay_history.pop_front();
     }

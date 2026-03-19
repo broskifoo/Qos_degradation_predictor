@@ -8,6 +8,7 @@
 #include <vector>
 #include <algorithm>
 #include <random>
+#include <cstdlib>
 
 int main() {
     std::cout << "Learning-Assisted QoS Degradation Prediction in Multi-Flow Packet-Switched Networks Simulator\n";
@@ -69,7 +70,8 @@ int main() {
     predictor.save_metrics(eval_metrics, metrics_path, cm_path);
     predictor.save_model_weights(weights_path);
 
-    std::cout << "   (You can run 'show_math.bat' in the project root to see mathematical calculations behind this model)\n";
+    std::cout << "   (Automatically launching 'show_math.bat' to show mathematical calculations)\n";
+    system("start \"\" \"..\\show_math.bat\"");
 
     std::vector<std::pair<double, double>> prob_curve;
     for (const auto& dp : test_data) {

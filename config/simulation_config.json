@@ -1,7 +1,7 @@
 {
   "simulation_time_sec": 300,
   "packet_size_bytes": 1024,
-  "bandwidth_mbps": 10,
+  "bandwidth_mbps": 25,
   "queue_size_packets": 500,
   "propagation_delay_ms": 10,
   "realtime_rate_mbps": 1,

@@ -37,6 +37,9 @@ void Simulator::run() {
     double last_log_time_ms = 0;
     double log_interval_ms = 1000.0; // Log every 1 second
     
+    double last_render_time_ms = 0;
+    double render_interval_ms = 16.0; // Target ~60FPS rendering
+    
     while (current_time_ms < end_time_ms) {
         
         // Check if user closed the dashboard window
@@ -51,11 +54,42 @@ void Simulator::run() {
         
         metrics.update_queue_occupancy(queue->get_occupancy());
         
-        // Update the visual dashboard in real-time
-        // We render every frame, raylib handles the 60FPS targeting
-        dashboard->render(current_time_ms, metrics, 50.0, 10.0, 0.05, flows.size());
+        // Update the visual dashboard periodically
+        if (current_time_ms - last_render_time_ms >= render_interval_ms) {
+            dashboard->render(current_time_ms, metrics, 50.0, 10.0, 0.05, flows.size());
+            last_render_time_ms = current_time_ms;
+        }
         
         if (current_time_ms - last_log_time_ms >= log_interval_ms) {
+            // -----------------------------------------------------
+            // NETWORK ANOMALY DETECTION & CROSS-LAYER OPTIMIZATION
+            // -----------------------------------------------------
+            static std::vector<double> rtt_history;
+            double current_rtt = metrics.get_avg_rtt();
+            if (current_rtt > 0) {
+                rtt_history.push_back(current_rtt);
+                if (rtt_history.size() > 10) {
+                    double mean = 0;
+                    for(double r : rtt_history) mean += r;
+                    mean /= rtt_history.size();
+                    
+                    double sq_sum = 0;
+                    for(double r : rtt_history) sq_sum += (r - mean) * (r - mean);
+                    double std_dev = std::sqrt(sq_sum / rtt_history.size());
+                    
+                    // Z-Score thresholding for anomaly detection
+                    if (current_rtt > mean + 3.0 * std_dev && std_dev > 2.0) {
+                        std::cout << "\n[!] ANOMALY DETECTED at " << current_time_ms/1000.0 << "s | RTT: " << current_rtt << "ms (Mean: " << mean << ")\n";
+                        std::cout << "--> Deploying Cross-Layer Optimization: Halving TCP cwnd proactively.\n";
+                        // Cross-layer signaling to throttle TCP
+                        for(auto& flow : flows) {
+                            flow->process_feedback(true, 0); // Packet loss signal throttles AIMD TCP
+                        }
+                    }
+                    if(rtt_history.size() > 50) rtt_history.erase(rtt_history.begin()); // sliding window
+                }
+            }
+
             // Log snapshot
             // For QoS degradation label threshold, setting typical values:
             // Delay > 50ms, Jitter > 10ms, Loss > 0.05 (5%)
