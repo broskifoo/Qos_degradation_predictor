@@ -22,7 +22,7 @@ Simulator::Simulator(const Config& sim_config, const std::string& dataset_file)
     logger = std::make_unique<Logger>(dataset_file);
     
     // Initialize Dashboard
-    dashboard = std::make_unique<Dashboard>(800, 600, "QoS Network Simulator");
+    dashboard = std::make_unique<Dashboard>(1200, 700, "QoS Network Simulator — Advanced IEEE Mode");
     
     int flow_id_counter = 1;
     

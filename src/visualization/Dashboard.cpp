@@ -226,20 +226,45 @@ bool Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
     int num_sources = std::max(1, active_flows);
     float anim_time = current_time_ms / 500.0f;
 
+    // --- ENHANCED MODE: Draw 3 distinct routing paths to a shared router node ---
+    if (is_enhanced_mode && !ui_state.path_delays.empty()) {
+        // Router midpoint
+        Vector3 routerPos = { 0.0f, worldY, 0.0f };
+        DrawCube(routerPos, 0.9f, 0.9f, 0.9f, { 56, 189, 248, 200 }); // Cyan router cube
+        DrawCubeWires(routerPos, 0.9f, 0.9f, 0.9f, { 255,255,255,180 });
+
+        // 3 Path links from router to destination with staggered Z offsets
+        float pathZ[] = { -2.5f, 0.0f, 2.5f };
+        Color pathColors[] = { colorGood, colorWarn, colorSource };
+        for (int p = 0; p < 3; p++) {
+            Vector3 midPos = { 2.0f, worldY, pathZ[p] };
+            Color pc = (p == ui_state.active_path) ? pathColors[p] : Color{80, 100, 120, 180};
+            DrawLine3D(routerPos, midPos, pc);
+            DrawLine3D(midPos, dstPos, pc);
+            DrawCube(midPos, 0.4f, 0.4f, 0.4f, pc);
+
+            // Animate packets on active path only
+            if (p == ui_state.active_path) {
+                for (int i = 0; i < 3; i++) {
+                    float t = fmod(anim_time + i * 0.333f, 1.0f);
+                    Vector3 pPt = {
+                        midPos.x + t * (dstPos.x - midPos.x),
+                        midPos.y,
+                        midPos.z + t * (dstPos.z - midPos.z)
+                    };
+                    DrawSphere(pPt, 0.13f, pc);
+                }
+            }
+        }
+    }
+
     for (int s = 0; s < num_sources; ++s) {
-        float zOffset = (s - (num_sources - 1) / 2.0f) * 2.5f; // Spread out more in Z
+        float zOffset = (s - (num_sources - 1) / 2.0f) * 2.5f;
         Vector3 srcPos = { -3.5f, worldY, zOffset };
-        
         Color flowColor = srcColors[s % 6];
-        
-        // Differentiate path line (pipe from source to queue)
         DrawLine3D(srcPos, qPos, flowColor);
-        
-        // Render Source Node
         DrawCube(srcPos, 0.8f, 0.8f, 0.8f, flowColor);
         DrawCubeWires(srcPos, 0.8f, 0.8f, 0.8f, {255, 255, 255, 100});
-        
-        // Animated Flowing packets to queue (desynchronized by 's')
         for(int i = 0; i < 3; i++) {
             float t = fmod(anim_time + (i * 0.333f) + (s * 0.2f), 1.0f);
             Vector3 pktPos = {
@@ -251,11 +276,13 @@ bool Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
         }
     }
 
-    // Flowing packets from Queue to Dest
-    for(int i = 0; i < 3; i++) {
-        float t = fmod(anim_time + (i * 0.333f), 1.0f);
-        float xPos2 = 0.0f + (t * 3.5f);
-        DrawSphere({ xPos2, worldY + 0.3f, 0.0f }, 0.15f, colorSource);
+    // Flowing packets from Queue/Router to Dest (baseline mode only)
+    if (!is_enhanced_mode) {
+        for(int i = 0; i < 3; i++) {
+            float t = fmod(anim_time + (i * 0.333f), 1.0f);
+            float xPos2 = 0.0f + (t * 3.5f);
+            DrawSphere({ xPos2, worldY + 0.3f, 0.0f }, 0.15f, colorSource);
+        }
     }
 
     // Destination Node
@@ -265,8 +292,11 @@ bool Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
     // Queue Node (Bottleneck)
     double occupancy = metrics.get_queue_occupancy();
     float fill_percentage = std::min(1.0f, std::max(0.0f, (float)(occupancy / 100.0))); 
-    float fill_width = 1.6f * fill_percentage; // slightly smaller than max buffer rendering size
-    Color qColor = (fill_percentage > 0.8f) ? colorBad : ((fill_percentage > 0.5f) ? colorWarn : colorGood);
+    float fill_width = 1.6f * fill_percentage;
+    // In Enhanced mode: if AQM is aggressive, flash the cube RED to indicate protective dropping
+    Color qColor = (is_enhanced_mode && ui_state.is_aqm_aggressive) ? colorBad
+                 : (fill_percentage > 0.8f) ? colorBad
+                 : (fill_percentage > 0.5f) ? colorWarn : colorGood;
     
     // Transparent box for buffer capacity
     DrawCube(qPos, 1.8f, 1.0f, 1.0f, { 20, 25, 40, 200 }); // Dark glass
@@ -295,9 +325,40 @@ bool Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
     // -------------------------------------------------------------
     // BOTTOM MAIN SECTION: LIVE QOS PLOT
     // -------------------------------------------------------------
-    DrawRectangleRounded({ plotPanel.x, plotPanel.y + 5, plotPanel.width, plotPanel.height }, 0.1f, 10, {0,0,0, 60}); // Shadow
+    DrawRectangleRounded({ plotPanel.x, plotPanel.y + 5, plotPanel.width, plotPanel.height }, 0.1f, 10, {0,0,0, 60});
     DrawRectangleRounded(plotPanel, 0.1f, 10, panelDark);
-    DrawText("Real-Time QoS Delay Plot", plotPanel.x + 20, plotPanel.y + 20, 20, textLight);
+    
+    if (is_enhanced_mode && !ui_state.path_delays.empty()) {
+        // --- Per-Path Delay Bar Chart ---
+        DrawText("Multi-Path Delay Comparison (ms)", plotPanel.x + 20, plotPanel.y + 15, 18, textLight);
+        float barW = 60, barGap = 30;
+        float barMaxH = plotPanel.height - 70;
+        float totalBarW = ui_state.path_delays.size() * (barW + barGap);
+        float startX = plotPanel.x + (plotPanel.width - totalBarW) / 2;
+        
+        double maxD = 1.0;
+        for (double d : ui_state.path_delays) if (d > maxD) maxD = d;
+        maxD = std::max(maxD, 30.0);
+        
+        for (size_t p = 0; p < ui_state.path_delays.size(); p++) {
+            double d = ui_state.path_delays[p];
+            float barH = (float)(d / maxD) * (barMaxH - 20);
+            float bx = startX + p * (barW + barGap);
+            float by = plotPanel.y + 45 + (barMaxH - barH - 20);
+            bool isActive = ((int)p == ui_state.active_path);
+            Color bc = isActive ? colorGood : Color{71, 85, 105, 200};
+            
+            DrawRectangle(bx, plotPanel.y + 45, barW, barMaxH - 20, {0,0,0,60});
+            DrawRectangle(bx, by, barW, barH, bc);
+            if (isActive) DrawRectangleLinesEx({bx - 2, by - 2, barW + 4, barH + 4}, 2, colorGood);
+            
+            std::stringstream ds; ds << std::fixed << std::setprecision(1) << d << "ms";
+            draw_text_centered(ds.str(), bx + barW/2, by - 20, 13, bc.r, bc.g, bc.b, 255);
+            draw_text_centered(isActive ? "PATH " + std::to_string(p) + " *" : "PATH " + std::to_string(p),
+                               bx + barW/2, plotPanel.y + 45 + barMaxH - 12, 13, 255, 255, 255, 200);
+        }
+    } else {
+        DrawText("Real-Time QoS Delay Plot", plotPanel.x + 20, plotPanel.y + 20, 20, textLight);
     
     if (delay_history.size() > 1) {
         float max_val = 1.0f;
@@ -335,6 +396,8 @@ bool Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
             DrawLineEx({x1, y1}, {x2, y2}, 2.0f, segmentColor);
         }
     }
+
+    } // end enhanced/baseline toggle for bottom plot
 
     EndDrawing();
     return toggle_clicked;
