@@ -18,8 +18,13 @@ private:
     Config config;
     double current_time_ms;
     
-    std::unique_ptr<Queue> queue;
-    std::unique_ptr<Link> link;
+    struct Path {
+        std::unique_ptr<Queue> queue;
+        std::unique_ptr<Link> link;
+        double current_delay_estimate;
+    };
+    std::vector<Path> paths;
+    
     MetricsTracker metrics;
     std::unique_ptr<Logger> logger;
     

@@ -8,8 +8,15 @@ namespace qos_sim {
 Simulator::Simulator(const Config& sim_config, const std::string& dataset_file)
     : config(sim_config), current_time_ms(0.0) {
     
-    queue = std::make_unique<Queue>(config.queue_size_packets);
-    link = std::make_unique<Link>(config.bandwidth_mbps, config.propagation_delay_ms);
+    // Initialize Multi-Path Topology (Self-Healing Routing)
+    // Create 3 pathways, splitting total bandwidth but adding staggered propagation latency
+    for (int i = 0; i < 3; i++) {
+        Path p;
+        p.queue = std::make_unique<Queue>(config.queue_size_packets / 3);
+        p.link = std::make_unique<Link>(config.bandwidth_mbps / 3.0, config.propagation_delay_ms + (i * 4.0));
+        paths.push_back(std::move(p));
+    }
+    
     logger = std::make_unique<Logger>(dataset_file);
     
     // Initialize Dashboard
@@ -52,7 +59,11 @@ void Simulator::run() {
         process_queue_and_link();
         process_arrivals();
         
-        metrics.update_queue_occupancy(queue->get_occupancy());
+        int total_occupancy = 0;
+        for (const auto& path : paths) {
+            total_occupancy += path.queue->get_occupancy();
+        }
+        metrics.update_queue_occupancy(total_occupancy);
         
         // Update the visual dashboard periodically
         if (current_time_ms - last_render_time_ms >= render_interval_ms) {
@@ -109,8 +120,27 @@ void Simulator::generate_traffic() {
         auto packets = flow->generate(current_time_ms);
         for (auto& pkt : packets) {
             metrics.record_sent(pkt->flow_id);
-            if (!queue->enqueue(pkt, current_time_ms)) {
-                // Buffer full
+            
+            // SELF-HEALING MULTI-PATH ROUTING: Least-Delay path selection
+            int best_path_idx = 0;
+            double min_delay = 999999.0;
+            
+            for (size_t i = 0; i < paths.size(); i++) {
+                // Estimated Delay = Propagation + Estimated queuing delay
+                double queue_delay_ms = 0;
+                if (paths[i].link->get_bandwidth_bps() > 0) {
+                    queue_delay_ms = (paths[i].queue->get_occupancy() * pkt->size_bytes * 8.0) / (paths[i].link->get_bandwidth_bps() / 1000.0);
+                }
+                double path_delay = paths[i].link->get_propagation_delay_ms() + queue_delay_ms;
+                paths[i].current_delay_estimate = path_delay;
+                
+                if (path_delay < min_delay) {
+                    min_delay = path_delay;
+                    best_path_idx = i;
+                }
+            }
+
+            if (!paths[best_path_idx].queue->enqueue(pkt, current_time_ms, false)) {
                 metrics.record_drop(pkt->flow_id);
                 flow->process_feedback(true, 0); // notify loss
             }
@@ -119,16 +149,15 @@ void Simulator::generate_traffic() {
 }
 
 void Simulator::process_queue_and_link() {
-    // If link is idle, process up to the capacity, but since discrete events:
-    // Link transmit returns the time the packet finishes transmission.
-    if (link->can_transmit(current_time_ms)) {
-        if (!queue->is_empty()) {
-            auto packet = queue->dequeue(current_time_ms);
-            
-            // This sets packet->arrival_time
-            link->transmit(packet, current_time_ms);
-            
-            in_flight_packets.push_back(packet);
+    for (auto& path : paths) {
+        if (path.link->can_transmit(current_time_ms)) {
+            if (!path.queue->is_empty()) {
+                auto packet = path.queue->dequeue(current_time_ms);
+                if (packet != nullptr) {
+                    path.link->transmit(packet, current_time_ms);
+                    in_flight_packets.push_back(packet);
+                }
+            }
         }
     }
 }

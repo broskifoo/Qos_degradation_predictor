@@ -21,6 +21,8 @@ public:
     double transmit(std::shared_ptr<Packet> packet, double current_time_ms);
     
     double get_transmission_delay_ms(int size_bytes) const;
+    double get_bandwidth_bps() const { return bandwidth_bps; }
+    double get_propagation_delay_ms() const { return propagation_delay_ms; }
 };
 
 } // namespace qos_sim
