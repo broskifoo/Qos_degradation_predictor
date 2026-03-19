@@ -1,0 +1,31 @@
+# CMake Build Directory
+build/
+
+# Compilation Logs
+*.log
+*.txt
+!CMakeLists.txt
+
+# Simulator generated outputs (optional, but usually ignored in git unless they are intended to be checked in)
+data/*
+results/*
+!data/
+!results/
+
+# Keep data and results directory but ignore their contents
+# If you want to commit the dataset or results, remove the lines below:
+# data/qos_dataset.csv
+# results/metrics.txt
+# results/confusion_matrix.txt
+# results/model_weights.txt
+
+# Editor / IDE
+.vscode/
+.idea/
+*.suo
+*.sln
+*.user
+
+# OS specifics
+.DS_Store
+Thumbs.db
