@@ -7,13 +7,28 @@
 
 namespace qos_sim {
 
+// New GUI Payload Struct containing all advanced module statistics
+struct UIStateData {
+    double current_drop_prob;
+    double avg_queue_size;
+    bool is_aqm_aggressive;
+    int active_path;
+    std::vector<double> path_delays;
+    int path_switches;
+    bool anomaly_detected;
+    std::string anomaly_type;
+    double anomaly_severity;
+    double current_cwnd;
+    std::string control_mode;
+};
+
 class Dashboard {
 public:
     Dashboard(int window_width = 800, int window_height = 600, const std::string& title = "QoS Network Simulator");
     ~Dashboard();
 
-    // Renders the dashboard frame with current metrics
-    void render(double current_time_ms, const MetricsTracker& metrics, double delay_thresh, double jitter_thresh, double loss_thresh, int active_flows);
+    // Renders the dashboard frame with current metrics. Returns true if the Baseline/Enhanced toggle was pressed.
+    bool render(double current_time_ms, const MetricsTracker& metrics, double delay_thresh, double jitter_thresh, double loss_thresh, int active_flows, const UIStateData& ui_state, bool is_enhanced_mode);
 
     // Renders the ML post-simulation evaluation results
     void render_ml_results(double accuracy, double precision, double recall, double f1_score, int tp, int fp, int tn, int fn, const std::vector<std::pair<double, double>>& prediction_curve = {});

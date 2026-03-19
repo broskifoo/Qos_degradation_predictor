@@ -34,9 +34,10 @@ void Dashboard::draw_text_centered(const std::string& text, int x, int y, int fo
     DrawText(text.c_str(), x - textWidth / 2, y, fontSize, c);
 }
 
-void Dashboard::render(double current_time_ms, const MetricsTracker& metrics, 
-                       double delay_thresh, double jitter_thresh, double loss_thresh, int active_flows) {
-    if (should_close()) return;
+bool Dashboard::render(double current_time_ms, const MetricsTracker& metrics, 
+                       double delay_thresh, double jitter_thresh, double loss_thresh, int active_flows, const UIStateData& ui_state, bool is_enhanced_mode) {
+    bool toggle_clicked = false;
+    if (should_close()) return false;
 
     // Track delay history for plotting with added visual randomness
     static std::mt19937 gen(std::random_device{}());
@@ -122,10 +123,10 @@ void Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
     double loss = metrics.get_packet_loss() * 100.0; // percentage
     double throughput = metrics.get_throughput_bps(1.0) / 1000000.0; // Mbps
 
-    // Stat Cards (Vertical Stack)
-    int stats_start_y = statusRect.y + statusRect.height + 30;
-    int card_h = 80;
-    int card_gap = 15;
+    // Stat Cards (Vertical Stack) scaled for smaller cards
+    int stats_start_y = statusRect.y + statusRect.height + 20;
+    int card_h = 60; // Shrink to fit more modules
+    int card_gap = 10;
     
     auto draw_side_stat_card = [&](int index, const char* label, double val, const char* unit, bool alert) {
         float x = sidePanel.x + 20;
@@ -138,21 +139,55 @@ void Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
         DrawRectangleRounded(card, 0.15f, 10, cardBg);
         
         Color labelColor = alert ? Color{252, 165, 165, 255} : textMute;
-        DrawText(label, x + 15, y + 10, 16, labelColor);
+        DrawText(label, x + 10, y + 8, 14, labelColor);
         
         std::stringstream val_ss;
         val_ss << std::fixed << std::setprecision(2) << val;
         Color valColor = alert ? textLight : colorSource; 
-        DrawText(val_ss.str().c_str(), x + 15, y + 35, 28, valColor);
+        DrawText(val_ss.str().c_str(), x + 10, y + 25, 22, valColor);
         
-        int valWidth = MeasureText(val_ss.str().c_str(), 28);
-        DrawText(unit, x + 15 + valWidth + 5, y + 45, 14, labelColor);
+        int valWidth = MeasureText(val_ss.str().c_str(), 22);
+        DrawText(unit, x + 10 + valWidth + 5, y + 33, 12, labelColor);
     };
 
-    draw_side_stat_card(0, "Avg RTT (Delay)", current_delay_val, "ms", current_delay_val > delay_thresh);
-    draw_side_stat_card(1, "Packet Jitter", jitter, "ms", jitter > jitter_thresh);
-    draw_side_stat_card(2, "Traffic Loss", loss, "%", loss > (loss_thresh * 100.0));
-    draw_side_stat_card(3, "Agg. Throughput", throughput, "Mbps", false);
+    if (!is_enhanced_mode) {
+        draw_side_stat_card(0, "Avg RTT (Delay)", current_delay_val, "ms", current_delay_val > delay_thresh);
+        draw_side_stat_card(1, "Packet Jitter", jitter, "ms", jitter > jitter_thresh);
+        draw_side_stat_card(2, "Traffic Loss", loss, "%", loss > (loss_thresh * 100.0));
+        draw_side_stat_card(3, "Agg. Throughput", throughput, "Mbps", false);
+    } else {
+        // --- ADVANCED MODULES PANELS ---
+        // 1. AQM UI PANEL
+        draw_side_stat_card(0, "AQM Avg Queue (RED)", ui_state.avg_queue_size, "pkts", ui_state.avg_queue_size > 400);
+        draw_side_stat_card(1, "AQM Drop Prob", ui_state.current_drop_prob * 100.0, "%", ui_state.is_aqm_aggressive);
+        
+        // 2. MULTI-PATH ROUTING PANEL
+        draw_side_stat_card(2, "Active Topology Path", ui_state.active_path, "ID", false);
+        draw_side_stat_card(3, "Path Swap Latency Adjusts", ui_state.path_switches, "events", ui_state.path_switches > 100);
+
+        // 3. ANOMALY DETECTION PANEL
+        draw_side_stat_card(4, "Anomaly Threat Score", ui_state.anomaly_severity, "Z", ui_state.anomaly_detected);
+
+        // 4. CROSS-LAYER TCP OPTIMIZATION PANEL
+        bool is_tcp_throttled = (ui_state.control_mode == "Aggressive");
+        draw_side_stat_card(5, "Cross-Layer TCP CWND", ui_state.current_cwnd, "MSS", is_tcp_throttled);
+        
+        // Dynamic Status Overlays indicating live model states natively onto the cards
+        DrawText((ui_state.is_aqm_aggressive ? "AGGR" : "NORM"), sidePanel.x + 200, stats_start_y + 1 * (card_h + card_gap) + 25, 16, ui_state.is_aqm_aggressive ? colorBad : colorGood);
+        DrawText((ui_state.anomaly_detected ? ui_state.anomaly_type.c_str() : "SECURE"), sidePanel.x + 140, stats_start_y + 4 * (card_h + card_gap) + 25, 14, ui_state.anomaly_detected ? colorBad : colorGood);
+        DrawText(ui_state.control_mode.c_str(), sidePanel.x + 180, stats_start_y + 5 * (card_h + card_gap) + 25, 16, (ui_state.control_mode == "Stable") ? colorSource : (is_tcp_throttled ? colorBad : colorWarn));
+    }
+    
+    // --- TOGGLE BUTTON (Baseline vs Enhanced) ---
+    Rectangle toggleBtn = { sidePanel.x + 20, sidePanel.y + sidePanel.height - 60, sidePanel.width - 40, 40 };
+    DrawRectangleRounded(toggleBtn, 0.2f, 10, is_enhanced_mode ? colorSource : textMute);
+    draw_text_centered(is_enhanced_mode ? "MODE: ENHANCED (IEEE)" : "MODE: BASELINE (FIFO)", toggleBtn.x + toggleBtn.width/2, toggleBtn.y + 12, 16, 255, 255, 255, 255);
+    
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (CheckCollisionPointRec(GetMousePosition(), toggleBtn)) {
+            toggle_clicked = true;
+        }
+    }
 
     // -------------------------------------------------------------
     // TOP MAIN SECTION: 3D TOPOLOGY
@@ -302,6 +337,7 @@ void Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
     }
 
     EndDrawing();
+    return toggle_clicked;
 }
 
 void Dashboard::render_ml_results(double accuracy, double precision, double recall, double f1_score, int tp, int fp, int tn, int fn, const std::vector<std::pair<double, double>>& prediction_curve) {

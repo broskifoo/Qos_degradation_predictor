@@ -25,6 +25,19 @@ private:
     };
     std::vector<Path> paths;
     
+    // UI tracking variables
+    int active_path_id = 0;
+    int path_switching_events = 0;
+    std::vector<double> per_path_delay;
+    
+    // Anomaly Detection UI Variables
+    bool anomaly_flag = false;
+    std::string anomaly_type = "NONE";
+    double anomaly_severity = 0.0;
+    
+    // UI Comparison Toggle Mode
+    bool is_enhanced_mode = true;
+    
     MetricsTracker metrics;
     std::unique_ptr<Logger> logger;
     
