@@ -3,8 +3,11 @@
 A complete modular **C++17** discrete-event network simulator that predicts Quality of Service (QoS) degradation in real time using a hand-built Logistic Regression model, rendered through a live **Raylib 3D dashboard**.
 
 ---
+![WhatsApp Image 2026-03-21 at 1 13 23 AM](https://github.com/user-attachments/assets/db9a322f-ce2a-4ba9-beab-6344bfbcdf5c)
 
-## Features
+## Features<img width="1460" height="741" alt="Screenshot 2026-03-21 010618" src="https://github.com/user-attachments/assets/da8f652b-3f1e-47b2-bfb3-66d41f03f7a7" />
+
+<img width="1197" height="731" alt="Screenshot 2026-03-21 011919" src="https://github.com/user-attachments/assets/16c906ad-387c-4be2-b1d4-b6e3315c0ef1" />
 
 | Module | Description |
 |--------|-------------|
