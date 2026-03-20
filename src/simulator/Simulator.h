@@ -53,6 +53,9 @@ public:
     
     void run();
 
+    // Returns a pointer to the existing dashboard window (for reuse after simulation ends)
+    Dashboard* get_dashboard() { return dashboard.get(); }
+
 private:
     void generate_traffic();
     void process_queue_and_link();

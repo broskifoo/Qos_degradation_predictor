@@ -18,6 +18,7 @@ Dashboard::Dashboard(int window_width, int window_height, const std::string& win
     
     InitWindow(width, height, title.c_str());
     SetTargetFPS(60);
+    SetExitKey(KEY_NULL); // Prevent Escape from closing the window — only X button should close it
 }
 
 Dashboard::~Dashboard() {
@@ -329,12 +330,21 @@ bool Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
     DrawRectangleRounded(plotPanel, 0.1f, 10, panelDark);
     
     if (is_enhanced_mode && !ui_state.path_delays.empty()) {
-        // --- Per-Path Delay Bar Chart ---
-        DrawText("Multi-Path Delay Comparison (ms)", plotPanel.x + 20, plotPanel.y + 15, 18, textLight);
-        float barW = 60, barGap = 30;
-        float barMaxH = plotPanel.height - 70;
-        float totalBarW = ui_state.path_delays.size() * (barW + barGap);
-        float startX = plotPanel.x + (plotPanel.width - totalBarW) / 2;
+        
+        // Update per-path history
+        for (int p = 0; p < 3 && p < (int)ui_state.path_delays.size(); p++) {
+            if (path_delay_history[p].size() >= max_path_history)
+                path_delay_history[p].pop_front();
+            path_delay_history[p].push_back((float)ui_state.path_delays[p]);
+        }
+        
+        DrawText("Multi-Path Delay Comparison", plotPanel.x + 20, plotPanel.y + 12, 18, textLight);
+        
+        // ---- LEFT PORTION: Bar Chart ----
+        float barAreaW = plotPanel.width * 0.28f;
+        float barW = 45, barGap = 18;
+        float barMaxH = plotPanel.height - 65;
+        float startX = plotPanel.x + 20;
         
         double maxD = 1.0;
         for (double d : ui_state.path_delays) if (d > maxD) maxD = d;
@@ -344,19 +354,71 @@ bool Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
             double d = ui_state.path_delays[p];
             float barH = (float)(d / maxD) * (barMaxH - 20);
             float bx = startX + p * (barW + barGap);
-            float by = plotPanel.y + 45 + (barMaxH - barH - 20);
+            float by = plotPanel.y + 40 + (barMaxH - barH - 20);
             bool isActive = ((int)p == ui_state.active_path);
             Color bc = isActive ? colorGood : Color{71, 85, 105, 200};
             
-            DrawRectangle(bx, plotPanel.y + 45, barW, barMaxH - 20, {0,0,0,60});
+            DrawRectangle(bx, plotPanel.y + 40, barW, barMaxH - 20, {0,0,0,60});
             DrawRectangle(bx, by, barW, barH, bc);
             if (isActive) DrawRectangleLinesEx({bx - 2, by - 2, barW + 4, barH + 4}, 2, colorGood);
             
             std::stringstream ds; ds << std::fixed << std::setprecision(1) << d << "ms";
-            draw_text_centered(ds.str(), bx + barW/2, by - 20, 13, bc.r, bc.g, bc.b, 255);
-            draw_text_centered(isActive ? "PATH " + std::to_string(p) + " *" : "PATH " + std::to_string(p),
-                               bx + barW/2, plotPanel.y + 45 + barMaxH - 12, 13, 255, 255, 255, 200);
+            draw_text_centered(ds.str(), bx + barW/2, by - 16, 11, bc.r, bc.g, bc.b, 255);
+            draw_text_centered(isActive ? "P" + std::to_string(p) + "*" : "P" + std::to_string(p),
+                               bx + barW/2, plotPanel.y + 40 + barMaxH - 14, 12, 255, 255, 255, 200);
         }
+        
+        // ---- RIGHT PORTION: Real-time multi-line graph ----
+        float graphX = plotPanel.x + barAreaW + 30;
+        float graphY = plotPanel.y + 40;
+        float graphW = plotPanel.width - barAreaW - 50;
+        float graphH = plotPanel.height - 65;
+        
+        // Divider line
+        DrawLineV({plotPanel.x + barAreaW + 15, plotPanel.y + 15},
+                  {plotPanel.x + barAreaW + 15, plotPanel.y + plotPanel.height - 10}, textMute);
+        
+        DrawText("Path Delay History (ms)", graphX, plotPanel.y + 12, 14, textMute);
+        
+        // Axes
+        DrawLineV({graphX, graphY}, {graphX, graphY + graphH}, textMute);
+        DrawLineV({graphX, graphY + graphH}, {graphX + graphW, graphY + graphH}, textMute);
+        
+        // Dynamic y-scale from all 3 histories
+        float maxLine = 1.0f;
+        for (int p = 0; p < 3; p++)
+            for (float v : path_delay_history[p]) if (v > maxLine) maxLine = v;
+        maxLine = std::max(maxLine, 30.0f);
+        
+        // Y axis labels
+        std::stringstream ylabel; ylabel << std::fixed << std::setprecision(0) << maxLine << "ms";
+        DrawText(ylabel.str().c_str(), graphX - MeasureText(ylabel.str().c_str(), 10) - 3, graphY, 10, textMute);
+        DrawText("0ms", graphX - MeasureText("0ms", 10) - 3, graphY + graphH - 8, 10, textMute);
+        
+        // Plot each path as a coloured line
+        Color lineColors[3] = { colorGood, colorWarn, colorSource };
+        const char* lineLabels[3] = { "Path 0", "Path 1", "Path 2" };
+        
+        for (int p = 0; p < 3; p++) {
+            auto& hist = path_delay_history[p];
+            if (hist.size() < 2) continue;
+            Color lc = lineColors[p];
+            float stepX = graphW / (float)(max_path_history - 1);
+            
+            for (size_t i = 1; i < hist.size(); i++) {
+                float x1 = graphX + (i - 1) * stepX;
+                float y1 = graphY + graphH - (hist[i-1] / maxLine) * graphH;
+                float x2 = graphX + i * stepX;
+                float y2 = graphY + graphH - (hist[i] / maxLine) * graphH;
+                DrawLineEx({x1, y1}, {x2, y2}, (p == ui_state.active_path) ? 2.5f : 1.5f, lc);
+            }
+            
+            // Legend dot + label at the right edge
+            float legendY = graphY + 14 + p * 18;
+            DrawCircle(graphX + graphW + 8, legendY + 5, 5, lc);
+            DrawText(lineLabels[p], graphX + graphW + 17, legendY, 12, lc);
+        }
+        
     } else {
         DrawText("Real-Time QoS Delay Plot", plotPanel.x + 20, plotPanel.y + 20, 20, textLight);
     
@@ -401,6 +463,41 @@ bool Dashboard::render(double current_time_ms, const MetricsTracker& metrics,
 
     EndDrawing();
     return toggle_clicked;
+}
+
+void Dashboard::render_waiting(const std::string& message) {
+    // Pump the event loop and show a transition screen so the window stays alive + responsive
+    // during the ML training phase (which has no rendering loop).
+    BeginDrawing();
+    Color bgDark    = { 15, 23, 42, 255 };
+    Color textLight = { 241, 245, 249, 255 };
+    Color colorSource = { 56, 189, 248, 255 };
+    Color textMute  = { 148, 163, 184, 255 };
+    ClearBackground(bgDark);
+    width  = GetScreenWidth();
+    height = GetScreenHeight();
+
+    // Spinning dot animation using frame count
+    static int frame = 0; frame++;
+    const char* dots[] = { ".", "..", "...", "...." };
+    std::string animated = message + dots[(frame / 15) % 4];
+
+    // Centre the text
+    int fw = MeasureText(animated.c_str(), 28);
+    DrawText(animated.c_str(), (width - fw) / 2, height / 2 - 30, 28, textLight);
+
+    int sw = MeasureText("Please wait", 18);
+    DrawText("Please wait", (width - sw) / 2, height / 2 + 18, 18, textMute);
+
+    // Simple progress indicator bar
+    int barW = width / 3;
+    int barX = (width - barW) / 2;
+    int barY = height / 2 + 60;
+    DrawRectangle(barX, barY, barW, 6, { 30, 41, 59, 255 });
+    int fill = (int)(barW * ((float)((frame * 3) % barW) / barW));
+    DrawRectangle(barX, barY, fill, 6, colorSource);
+
+    EndDrawing();
 }
 
 void Dashboard::render_ml_results(double accuracy, double precision, double recall, double f1_score, int tp, int fp, int tn, int fn, const std::vector<std::pair<double, double>>& prediction_curve) {

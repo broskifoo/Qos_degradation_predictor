@@ -30,7 +30,17 @@ int main() {
     std::cout << "3. Running Simulation & Generating Dataset...\n";
     simulator.run();
 
+    // Grab the existing dashboard window immediately after simulation ends.
+    // Raylib only supports one window — we reuse it for the ML phase.
+    qos_sim::Dashboard* dashboard = simulator.get_dashboard();
+    auto wait = [&](const std::string& msg) {
+        // Render a couple of "please wait" frames after each heavy step so the
+        // window stays alive and events keep being pumped (prevents OS "not responding").
+        if (dashboard) { dashboard->render_waiting(msg); dashboard->render_waiting(msg); }
+    };
+
     std::cout << "\n4. Loading Generated Dataset...\n";
+    wait("Loading Dataset");
     std::vector<qos_sim::DataPoint> dataset = qos_sim::CSVReader::read_dataset(dataset_path);
     std::cout << "   Total samples loaded: " << dataset.size() << "\n";
 
@@ -40,6 +50,7 @@ int main() {
     }
 
     // Shuffle dataset
+    wait("Shuffling & Splitting Dataset");
     std::random_device rd;
     std::mt19937 g(rd());
     std::shuffle(dataset.begin(), dataset.end(), g);
@@ -50,21 +61,25 @@ int main() {
     std::vector<qos_sim::DataPoint> test_data(dataset.begin() + split_idx, dataset.end());
 
     std::cout << "\n5. Initializing Logistic Regression Predictor...\n";
+    wait("Initialising Logistic Regression Predictor");
     qos_sim::LogisticRegression predictor(config.learning_rate, config.epochs);
 
     std::cout << "5.5 Performing Feature Correlation Analysis (Paper Section XVII.C)...\n";
+    wait("Performing Feature Correlation Analysis");
     predictor.analyze_feature_correlation(dataset);
 
     std::cout << "6. Training Model...\n";
+    wait("Training ML Model");
     predictor.train(train_data);
 
     std::cout << "\n7. Evaluating Model on Test Set...\n";
+    wait("Evaluating Model on Test Set");
     qos_sim::EvaluationMetrics eval_metrics = predictor.evaluate(test_data);
-    
-    std::cout << "   Accuracy:  " << eval_metrics.accuracy * 100.0 << " %\n";
+
+    std::cout << "   Accuracy:  " << eval_metrics.accuracy  * 100.0 << " %\n";
     std::cout << "   Precision: " << eval_metrics.precision * 100.0 << " %\n";
-    std::cout << "   Recall:    " << eval_metrics.recall * 100.0 << " %\n";
-    std::cout << "   F1 Score:  " << eval_metrics.f1_score * 100.0 << " %\n";
+    std::cout << "   Recall:    " << eval_metrics.recall    * 100.0 << " %\n";
+    std::cout << "   F1 Score:  " << eval_metrics.f1_score  * 100.0 << " %\n";
 
     std::cout << "\n8. Saving Results...\n";
     predictor.save_metrics(eval_metrics, metrics_path, cm_path);
@@ -73,23 +88,24 @@ int main() {
     std::cout << "   (Automatically launching 'show_math.bat' to show mathematical calculations)\n";
     system("start \"\" \"..\\show_math.bat\"");
 
+    wait("Building Prediction Curve");
     std::vector<std::pair<double, double>> prob_curve;
     for (const auto& dp : test_data) {
         double prob = predictor.predict_prob(dp);
-        // We'll plot Queue Occupancy vs Probability, since the feature correlation study says it's strong
         prob_curve.push_back({dp.queue_occupancy, prob});
     }
     std::sort(prob_curve.begin(), prob_curve.end());
 
     std::cout << "\n9. Presenting ML Results Dashboard...\n";
-    {
-        qos_sim::Dashboard results_dash(900, 500, "QoS Machine Learning Evaluation Results");
-        while (!results_dash.should_close()) {
-            results_dash.render_ml_results(
-                eval_metrics.accuracy, eval_metrics.precision, 
-                eval_metrics.recall, eval_metrics.f1_score, 
-                eval_metrics.tp, eval_metrics.fp, 
-                eval_metrics.tn, eval_metrics.fn,
+    if (dashboard) {
+        // Always enter the result loop — SetExitKey(KEY_NULL) in Dashboard ensures
+        // Escape no longer spuriously sets should_close(). Only the X button closes.
+        while (!dashboard->should_close()) {
+            dashboard->render_ml_results(
+                eval_metrics.accuracy,  eval_metrics.precision,
+                eval_metrics.recall,    eval_metrics.f1_score,
+                eval_metrics.tp,        eval_metrics.fp,
+                eval_metrics.tn,        eval_metrics.fn,
                 prob_curve
             );
         }

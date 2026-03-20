@@ -1,6 +1,7 @@
 #include "Simulator.h"
 #include "TCPFlow.h"
 #include "RealTimeFlow.h"
+#include <raylib.h>
 #include <iostream>
 
 namespace qos_sim {
@@ -181,6 +182,10 @@ void Simulator::run() {
     }
     
     std::cout << "Simulation completed.\n";
+
+    // Update the existing window title to signal the ML results phase
+    // (Raylib only supports one window — we reuse it instead of opening a new one)
+    SetWindowTitle("QoS — Machine Learning Evaluation Results");
 }
 
 void Simulator::generate_traffic() {

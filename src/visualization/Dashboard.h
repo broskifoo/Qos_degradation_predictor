@@ -33,6 +33,9 @@ public:
     // Renders the ML post-simulation evaluation results
     void render_ml_results(double accuracy, double precision, double recall, double f1_score, int tp, int fp, int tn, int fn, const std::vector<std::pair<double, double>>& prediction_curve = {});
 
+    // Renders a simple "please wait" transition screen (keeps window alive between phases)
+    void render_waiting(const std::string& message);
+
     // Check if the user tried to close the window
     bool should_close() const;
 
@@ -43,6 +46,10 @@ private:
     
     std::deque<float> delay_history;
     const size_t max_history_size = 200;
+    
+    // Per-path rolling delay history for the time-series line graph
+    std::deque<float> path_delay_history[3];
+    const size_t max_path_history = 150;
     
     // Helper to draw text centered (raylib Color is usually defined as struct Color, using void* or forward decl if needed, but since it's a cpp file we can just use raylib types by including it or using auto. We'll use an int for RGBA or a generic type)
     // Actually, to avoid raylib.h leaking, let's just make it take a generic uint32_t color hex, or just implement it locally in cpp. 
