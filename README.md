@@ -111,7 +111,7 @@ Key tunable parameters:
   "bandwidth_mbps": 10,
   "queue_size_packets": 100,
   "tcp_flows": 3,
-  "learning_rate": 0.01,________
+  "learning_rate": 0.01,
   "epochs": 1000
 }
 ```
